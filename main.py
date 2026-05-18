@@ -5,10 +5,69 @@ import yfinance as yf
 import pandas as pd
 import requests
 import time
+import json
 import sys
+import io
 import os
 
+# 구글 드라이브 데스크톱 동기화 폴더 내 Stocks 경로.
+DRIVE_BASE = os.environ.get(
+    "STOCK_DRIVE_BASE",
+    os.path.expanduser("~/Google Drive/내 드라이브/Stocks"),
+)
+
 df_krx = None
+
+def load_input_df(file_path):
+    """입력 DataFrame 로드.
+
+    - `.gsheet`(네이티브 구글 시트 포인터)면 doc_id를 파싱해 구글 export URL에서 xlsx로 내려받아 읽는다. 
+      해당 시트는 '링크가 있는 모든 사용자: 뷰어'로 공유돼 있어야 한다(비공개면 로그인 HTML이 반환됨).
+    - 그 외(로컬 xlsx)는 기존대로 pd.read_excel로 읽는다(하위호환).
+    실패 시 None 반환.
+    """
+    if not os.path.exists(file_path):
+        print(f"[ERROR] 파일을 찾을 수 없습니다: {file_path}\n"
+              f"        구글 드라이브 데스크톱 앱이 실행 중이고 해당 폴더 "
+              f"동기화가 완료됐는지 확인하세요.", file=sys.stderr)
+        return None
+
+    if not file_path.endswith(".gsheet"):
+        try:
+            return pd.read_excel(file_path)
+        except Exception as e:
+            print(f"[ERROR] 파일을 읽을 수 없습니다: {e}", file=sys.stderr)
+            return None
+
+    # 네이티브 구글 시트: doc_id 파싱 -> export URL 다운로드
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            doc_id = json.load(f).get("doc_id")
+    except Exception as e:
+        print(f"[ERROR] .gsheet 파일을 파싱할 수 없습니다 ({file_path}): {e}",
+              file=sys.stderr)
+        return None
+
+    if not doc_id:
+        print(f"[ERROR] .gsheet에 doc_id가 없습니다: {file_path}", file=sys.stderr)
+        return None
+
+    url = f"https://docs.google.com/spreadsheets/d/{doc_id}/export?format=xlsx"
+    try:
+        resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'},
+                            timeout=30)
+        content_type = resp.headers.get('Content-Type', '')
+        if resp.status_code != 200 or 'text/html' in content_type:
+            print(f"[ERROR] 구글 시트를 내려받지 못했습니다 (doc_id={doc_id}, "
+                  f"status={resp.status_code}). 해당 시트가 '링크가 있는 모든 "
+                  f"사용자: 뷰어'로 공유됐는지 확인하세요.", file=sys.stderr)
+            return None
+        return pd.read_excel(io.BytesIO(resp.content), engine='openpyxl')
+    except Exception as e:
+        print(f"[ERROR] 구글 시트 로드 실패 (doc_id={doc_id}): {e}\n"
+              f"        해당 시트가 '링크가 있는 모든 사용자: 뷰어'로 "
+              f"공유됐는지 확인하세요.", file=sys.stderr)
+        return None
 
 def get_domestic_ticker(query):
     """국내 종목명 또는 코드를 yfinance용 티커(.KS/.KQ)로 변환"""
@@ -52,10 +111,8 @@ def process_stock_file(file_path, market_type="국내", column_name="종목명",
     """
     공통 프로세스: 엑셀 로드 -> 정보 수집 -> 엑셀 저장
     """
-    try:
-        df = pd.read_excel(file_path)
-    except Exception as e:
-        print(f"[ERROR] 파일을 읽을 수 없습니다: {e}", file=sys.stderr)
+    df = load_input_df(file_path)
+    if df is None:
         return
 
     print(f"[INFO] {market_type} 데이터 수집 시작 ({file_path}) ---")
@@ -138,16 +195,21 @@ def process_stock_file(file_path, market_type="국내", column_name="종목명",
         
         time.sleep(0.5) # 과부하 방지
 
-    base_file_name, extension = os.path.splitext(file_path)
+    base_file_name, _ = os.path.splitext(file_path)
     today = datetime.now().strftime("%Y%m%d")
-    output_name = f"{base_file_name}_output_{today}{extension}"
+    output_name = f"{base_file_name}_output_{today}.xlsx"
 
+    os.makedirs(os.path.dirname(output_name), exist_ok=True)
     df.to_excel(output_name, index=False, engine='openpyxl')
     print(f"[INFO] 저장 완료: {output_name} ---")
 
 if __name__ == "__main__":
-    # 국내 파일 처리
-    process_stock_file(file_path="files/domestic/data.xlsx")
+    # 국내 기업 (구글 드라이브 네이티브 시트)
+    process_stock_file(
+        file_path=os.path.join(DRIVE_BASE, "국내주식_기업.gsheet"),
+        market_type="국내", column_name="종목명", has_ticker=False)
 
-    # 해외 파일 처리
-    process_stock_file(file_path="files/overseas/data.xlsx", market_type="해외", column_name="티커", has_ticker=True)
+    # 해외 기업 (구글 드라이브 네이티브 시트)
+    process_stock_file(
+        file_path=os.path.join(DRIVE_BASE, "해외주식_기업.gsheet"),
+        market_type="해외", column_name="티커", has_ticker=True)
