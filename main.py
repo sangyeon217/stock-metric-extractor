@@ -1,6 +1,5 @@
 from datetime import datetime
 from pprint import pprint
-import FinanceDataReader as fdr
 import yfinance as yf
 import pandas as pd
 import requests
@@ -69,11 +68,28 @@ def load_input_df(file_path):
               f"공유됐는지 확인하세요.", file=sys.stderr)
         return None
 
+def _load_krx_listing():
+    """KIND 상장법인목록을 Code/Name/Market(KOSPI·KOSDAQ·KONEX) DataFrame으로 로드."""
+    url = "http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13"
+    r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=30)
+    r.raise_for_status()
+    df = pd.read_html(io.StringIO(r.text), header=0)[0]
+    df = df.rename(columns={'회사명': 'Name', '시장구분': 'Market', '종목코드': 'Code'})
+    df['Code'] = df['Code'].astype(str).str.zfill(6)
+    # 시장구분: '유가'(유가증권시장)=KOSPI, '코스닥'=KOSDAQ, '코넥스'=KONEX
+    df['Market'] = df['Market'].map(
+        {'유가': 'KOSPI', '코스닥': 'KOSDAQ', '코넥스': 'KONEX'}).fillna(df['Market'])
+    return df[['Code', 'Name', 'Market']]
+
 def get_domestic_ticker(query):
     """국내 종목명 또는 코드를 yfinance용 티커(.KS/.KQ)로 변환"""
     global df_krx
     if df_krx is None:
-        df_krx = fdr.StockListing('KRX')
+        try:
+            df_krx = _load_krx_listing()
+        except Exception as e:
+            print(f"[ERROR] KRX 상장목록 로드 실패: {e}", file=sys.stderr)
+            return None
 
     query_str = str(query).strip()
 

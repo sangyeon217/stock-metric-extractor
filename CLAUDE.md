@@ -50,7 +50,7 @@ process_stock_file(file_path=os.path.join(DRIVE_BASE, "해외주식_기업.gshee
 
 **`load_input_df(file_path)`** — 입력 DataFrame 로드. `.gsheet`면 doc_id를 파싱해 구글 export URL에서 xlsx로 내려받고, 그 외 경로는 `pd.read_excel`로 읽습니다. 파일 미존재·비공개 시트·파싱 실패 시 안내 메시지를 stderr로 출력하고 `None`을 반환합니다.
 
-**`get_domestic_ticker(query)`** — 종목명 또는 6자리 종목코드를 Yahoo Finance 티커(`005930.KS`, `035720.KQ`)로 변환합니다. `FinanceDataReader.StockListing('KRX')` 결과를 모듈 전역 변수 `df_krx`에 최초 1회만 로드하여 캐싱합니다.
+**`_load_krx_listing()` / `get_domestic_ticker(query)`** — 종목명 또는 6자리 종목코드를 Yahoo Finance 티커(`005930.KS`, `035720.KQ`)로 변환합니다. KIND 상장법인목록 다운로드(`kind.krx.co.kr/corpgeneral/corpList.do`)를 `_load_krx_listing()`으로 받아 Code/Name/Market(유가→KOSPI, 코스닥→KOSDAQ, 코넥스→KONEX)로 정규화한 뒤 모듈 전역 변수 `df_krx`에 최초 1회만 캐싱합니다.
 
 **`get_overseas_ticker(query)`** — Yahoo Finance 검색 API(`query2.finance.yahoo.com/v1/finance/search`)에 종목명을 쿼리해 첫 번째 심볼을 반환합니다.
 
