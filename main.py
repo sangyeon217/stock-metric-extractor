@@ -1,11 +1,15 @@
 from datetime import datetime
 from pprint import pprint
+from openpyxl.utils import get_column_letter
+from openpyxl.formatting.rule import FormulaRule
+from openpyxl.styles import PatternFill, Font
 import yfinance as yf
 import pandas as pd
 import requests
 import time
 import json
 import sys
+import re
 import io
 import os
 
@@ -14,6 +18,10 @@ DRIVE_BASE = os.environ.get(
     "STOCK_DRIVE_BASE",
     os.path.expanduser("~/Google Drive/내 드라이브/Stocks"),
 )
+
+# 조건부 서식 임계값을 정의한 md 파일 경로(스크립트와 같은 폴더).
+FORMAT_RULES_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "formatting_rules.md")
 
 df_krx = None
 
@@ -123,6 +131,89 @@ def get_overseas_ticker(query):
         print(f"[ERROR] 해외 티커 검색 중 오류 ({query_str}): {e}", file=sys.stderr)
     return None
 
+def load_format_rules(md_path):
+    """조건부 서식 md를 {열이름: [(condition_str, color), ...]} 로 파싱.
+
+    `##` 제목으로 섹션(열 이름)을 구분하고, `-> green` 또는 `-> red` 로
+    끝나는 불릿 줄만 규칙으로 인식한다(설명용 불릿은 자동 무시).
+    파일이 없거나 파싱에 실패하면 경고를 출력하고 빈 dict를 반환해
+    서식 없이 정상 저장되도록 한다.
+    """
+    if not os.path.exists(md_path):
+        print(f"[WARN] 조건부 서식 기준 파일이 없어 서식을 건너뜁니다: {md_path}",
+              file=sys.stderr)
+        return {}
+
+    rules = {}
+    current = None
+    rule_re = re.compile(r"^-\s*(.+?)\s*->\s*(green|red)\s*$", re.IGNORECASE)
+    try:
+        with open(md_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("## "):
+                    current = line[3:].strip()
+                    continue
+                m = rule_re.match(line)
+                if m and current:
+                    rules.setdefault(current, []).append(
+                        (m.group(1).strip(), m.group(2).lower()))
+    except Exception as e:
+        print(f"[WARN] 조건부 서식 기준 파싱 실패, 서식을 건너뜁니다: {e}",
+              file=sys.stderr)
+        return {}
+
+    return {k: v for k, v in rules.items() if v}
+
+def _condition_to_excel(cond, cell):
+    """'value < 0' / '0 <= value < 10' 같은 조건을 엑셀 비교식 리스트로 변환."""
+    num = r"-?\d+(?:\.\d+)?"
+    flip = {"<": ">", "<=": ">=", ">": "<", ">=": "<="}
+
+    single = re.match(rf"^value\s*(<=|>=|<|>|==)\s*({num})$", cond)
+    if single:
+        op = "=" if single.group(1) == "==" else single.group(1)
+        return [f"{cell}{op}{single.group(2)}"]
+
+    rng = re.match(rf"^({num})\s*(<=|<)\s*value\s*(<=|<)\s*({num})$", cond)
+    if rng:
+        low, lop, rop, high = rng.groups()
+        return [f"{cell}{flip[lop]}{low}", f"{cell}{rop}{high}"]
+
+    raise ValueError(f"지원하지 않는 조건 문법: {cond!r}")
+
+def apply_conditional_formatting(worksheet, df, rules):
+    """파싱된 규칙을 출력 워크시트의 각 열 범위에 Excel 조건부 서식으로 적용."""
+    n = len(df)
+    if n == 0:
+        return
+
+    fills = {
+        "green": (PatternFill("solid", fgColor="C6EFCE"), Font(color="006100")),
+        "red": (PatternFill("solid", fgColor="FFC7CE"), Font(color="9C0006")),
+    }
+    columns = list(df.columns)
+
+    for col_name, col_rules in rules.items():
+        if col_name not in columns:
+            continue
+        # to_excel(index=False): 헤더=1행, 데이터=2행부터, 열은 A부터.
+        letter = get_column_letter(columns.index(col_name) + 1)
+        top = f"{letter}2"
+        cell_range = f"{letter}2:{letter}{n + 1}"
+
+        for cond, color in col_rules:
+            try:
+                parts = _condition_to_excel(cond, top)
+            except ValueError as e:
+                print(f"[WARN] '{col_name}' 규칙 무시: {e}", file=sys.stderr)
+                continue
+            fill, font = fills[color]
+            formula = f"AND(ISNUMBER({top}),{','.join(parts)})"
+            worksheet.conditional_formatting.add(
+                cell_range,
+                FormulaRule(formula=[formula], fill=fill, font=font))
+
 def process_stock_file(file_path, market_type="국내", column_name="종목명", has_ticker=False):
     """
     공통 프로세스: 엑셀 로드 -> 정보 수집 -> 엑셀 저장
@@ -216,7 +307,12 @@ def process_stock_file(file_path, market_type="국내", column_name="종목명",
     output_name = f"{base_file_name}_output_{today}.xlsx"
 
     os.makedirs(os.path.dirname(output_name), exist_ok=True)
-    df.to_excel(output_name, index=False, engine='openpyxl')
+    with pd.ExcelWriter(output_name, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False)
+        rules = load_format_rules(FORMAT_RULES_PATH)
+        if rules:
+            worksheet = writer.sheets[writer.book.sheetnames[0]]
+            apply_conditional_formatting(worksheet, df, rules)
     print(f"[INFO] 저장 완료: {output_name} ---")
 
 if __name__ == "__main__":

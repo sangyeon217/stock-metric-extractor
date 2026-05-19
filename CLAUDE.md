@@ -46,7 +46,7 @@ process_stock_file(file_path=os.path.join(DRIVE_BASE, "해외주식_기업.gshee
 
 ## 코드 구조
 
-모든 로직은 `main.py` 한 파일에 있으며 네 개의 함수로 구성됩니다.
+모든 로직은 `main.py` 한 파일에 있습니다.
 
 **`load_input_df(file_path)`** — 입력 DataFrame 로드. `.gsheet`면 doc_id를 파싱해 구글 export URL에서 xlsx로 내려받고, 그 외 경로는 `pd.read_excel`로 읽습니다. 파일 미존재·비공개 시트·파싱 실패 시 안내 메시지를 stderr로 출력하고 `None`을 반환합니다.
 
@@ -54,7 +54,9 @@ process_stock_file(file_path=os.path.join(DRIVE_BASE, "해외주식_기업.gshee
 
 **`get_overseas_ticker(query)`** — Yahoo Finance 검색 API(`query2.finance.yahoo.com/v1/finance/search`)에 종목명을 쿼리해 첫 번째 심볼을 반환합니다.
 
-**`process_stock_file(...)`** — 메인 파이프라인: `load_input_df`로 입력 로드 → 행 순회 → 티커 변환 → `yf.Ticker(ticker).info` 호출 → DataFrame에 지표 기록 → 결과 엑셀 저장.
+**`load_format_rules(md_path)` / `_condition_to_excel(...)` / `apply_conditional_formatting(...)`** — 저장소 루트의 `formatting_rules.md`(임계값 기준)를 파싱해 출력 엑셀에 Excel 조건부 서식을 적용합니다. `##` 제목이 출력 열 이름, `- 조건 -> green|red` 줄이 규칙입니다. 단일 비교(`value < 0`)와 범위(`0 <= value < 10`)를 지원하며, 빈 셀 오탐 방지를 위해 모든 수식에 `ISNUMBER` 가드를 AND로 결합합니다. md 파일이 없거나 파싱 실패 시 경고만 출력하고 서식 없이 정상 저장됩니다(graceful degradation).
+
+**`process_stock_file(...)`** — 메인 파이프라인: `load_input_df`로 입력 로드 → 행 순회 → 티커 변환 → `yf.Ticker(ticker).info` 호출 → DataFrame에 지표 기록 → `pd.ExcelWriter`로 저장하며 `apply_conditional_formatting`으로 조건부 서식 적용.
 
 ## 주요 구현 세부사항
 
@@ -63,3 +65,4 @@ process_stock_file(file_path=os.path.join(DRIVE_BASE, "해외주식_기업.gshee
 - **출력 파일명**: `{입력경로(확장자 제거)}_output_{YYYYMMDD}.xlsx` — 입력이 드라이브 동기화 폴더 안이면 결과도 같은 폴더에 저장돼 데스크톱 앱이 자동 업로드합니다. 원본/구글 시트는 수정하지 않습니다.
 - **금액 단위**: 시가총액·잉여현금흐름은 10¹²으로 나눠 조(兆) 단위로 저장합니다.
 - **비율 단위**: ROE, 영업이익률, 각종 성장률은 `* 100`을 해서 퍼센트 값으로 저장합니다.
+- **조건부 서식**: 임계값 기준은 코드가 아니라 저장소 루트의 `formatting_rules.md`에서 관리합니다(비개발자도 직접 수정 가능). 색은 연한 배경색 채우기(초록 `C6EFCE`, 빨강 `FFC7CE`)이며, PER 기준은 `PER(Trailing)`·`PER(Forward)` 두 열에 모두 적용됩니다.
