@@ -32,8 +32,10 @@ EXIT_CODE=$?
 echo "-------------------------------------------"
 if [ $EXIT_CODE -eq 0 ]; then
     echo "[완료] 스크립트가 정상적으로 종료되었습니다."
+    osascript -e 'display notification "출력 파일이 Google Drive에 저장됐습니다." with title "✅ 주식 지표 추출 완료"'
 else
     echo "[경고] 스크립트가 종료 코드 $EXIT_CODE 로 종료되었습니다."
+    osascript -e 'display notification "오류가 발생했습니다. 로그를 확인하세요." with title "❌ 주식 지표 추출 실패"'
 fi
 
 echo ""
