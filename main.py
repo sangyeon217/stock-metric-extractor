@@ -321,7 +321,17 @@ if __name__ == "__main__":
         file_path=os.path.join(DRIVE_BASE, "국내주식_기업.gsheet"),
         market_type="국내", column_name="종목명", has_ticker=False)
 
+    # 국내 기업 지켜보기 (구글 드라이브 네이티브 시트)
+    process_stock_file(
+        file_path=os.path.join(DRIVE_BASE, "국내주식_기업_지켜보기.gsheet"),
+        market_type="국내", column_name="종목명", has_ticker=False)
+
     # 해외 기업 (구글 드라이브 네이티브 시트)
     process_stock_file(
         file_path=os.path.join(DRIVE_BASE, "해외주식_기업.gsheet"),
+        market_type="해외", column_name="티커", has_ticker=True)
+
+    # 해외 기업 지켜보기 (구글 드라이브 네이티브 시트)
+    process_stock_file(
+        file_path=os.path.join(DRIVE_BASE, "해외주식_기업_지켜보기.gsheet"),
         market_type="해외", column_name="티커", has_ticker=True)
