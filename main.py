@@ -302,6 +302,34 @@ def process_stock_file(file_path, market_type="국내", column_name="종목명",
         
         time.sleep(0.5) # 과부하 방지
 
+    # 보유수량/평가금액/비중(%) 처리: 입력에 '보유수량' 열이 있을 때만(지켜보기 시트엔 없음).
+    # 평가금액 = 현재가 * 보유수량 (국내는 원, 해외는 달러 — yfinance 거래통화 기준).
+    # 비중(%) = 평가금액 / Σ평가금액 * 100, 소수점 첫째자리.
+    if '보유수량' in df.columns:
+        amount_col = '평가금액(원)' if market_type == "국내" else '평가금액(달러)'
+        qty = pd.to_numeric(df['보유수량'], errors='coerce')
+        price = pd.to_numeric(df['현재가'], errors='coerce')
+        eval_amount = price * qty
+        df[amount_col] = eval_amount
+        total = eval_amount.sum(skipna=True)
+        if total and total > 0:
+            df['비중(%)'] = (eval_amount / total * 100).round(1)
+        else:
+            df['비중(%)'] = None
+
+        # 섹터 오른쪽에 보유수량, 평가금액, 비중(%) 순으로 재배치.
+        order = ['보유수량', amount_col, '비중(%)']
+        cols = list(df.columns)
+        for c in order:
+            if c in cols:
+                cols.remove(c)
+        if '섹터' in cols:
+            idx = cols.index('섹터') + 1
+            cols[idx:idx] = order
+        else:
+            cols += order
+        df = df[cols]
+
     base_file_name, _ = os.path.splitext(file_path)
     today = datetime.now().strftime("%Y%m%d")
     output_name = f"{base_file_name}_output_{today}.xlsx"
