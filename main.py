@@ -330,11 +330,12 @@ def process_stock_file(file_path, market_type="국내", column_name="종목명",
             cols += order
         df = df[cols]
 
-    base_file_name, _ = os.path.splitext(file_path)
+    base_file_name = os.path.splitext(os.path.basename(file_path))[0]
     today = datetime.now().strftime("%Y%m%d")
-    output_name = f"{base_file_name}_output_{today}.xlsx"
+    output_dir = os.path.join(DRIVE_BASE, "Metrics")
+    output_name = os.path.join(output_dir, f"{base_file_name}_output_{today}.xlsx")
 
-    os.makedirs(os.path.dirname(output_name), exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
     with pd.ExcelWriter(output_name, engine='openpyxl') as writer:
         df.to_excel(writer, index=False)
         rules = load_format_rules(FORMAT_RULES_PATH)
